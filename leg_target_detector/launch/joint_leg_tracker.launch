@@ -1,0 +1,13 @@
+<?xml version="1.0" ?>
+<launch>
+  <!-- params -->
+  <param name="forest_file" value="$(find leg_target_detector)/config/trained_leg_detector_res=0.33.yaml" />
+  <param name="scan_topic" value="/scan" />
+  <param name="fixed_frame" value="base_link"/>
+  <param name="scan_frequency" value="10"/>  
+  
+  
+  <!-- run detect_leg_clusters -->  
+  <node pkg="leg_target_detector" type="detect_leg_clusters" name="detect_leg_clusters" output="screen"/>  
+   
+</launch>
