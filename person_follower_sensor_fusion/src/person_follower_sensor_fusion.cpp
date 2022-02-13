@@ -66,7 +66,7 @@ PersonFollowerSensorFusion::PersonFollowerSensorFusion()
     cameraInfoInited_ = false; 
     initRgb_ = false;
     followerState_ = IDLE;
-    mode_ = false;
+    mode_ = true;
 
 
     trackingTarget_.initKalmanParams(); 
@@ -302,7 +302,8 @@ void PersonFollowerSensorFusion::exectueCameraStateMachine(){
 
                 followerState_ = INIT_TARGET;
 
-                break;             
+                break; 
+
             } else {
                 
                 auto cmdVel = cmdVelManager_.createZeroCmdVel();
@@ -327,7 +328,7 @@ void PersonFollowerSensorFusion::exectueCameraStateMachine(){
 
             } else {
 
-                followerState_ = IDLE;
+                followerState_ = INIT_TARGET;
 
                 auto cmdVel = cmdVelManager_.createZeroCmdVel();
                 twistCommandPublisher_.publish(cmdVel);
@@ -347,7 +348,7 @@ void PersonFollowerSensorFusion::exectueCameraStateMachine(){
 
                 if( trackingState_ == CAME_FROM_INIT ){
 
-                    followerState_ = IDLE;
+                    followerState_ = INIT_TARGET;
                     break;
                 }
                 if( trackingState_ == CAME_FROM_TRACKING ){
@@ -395,6 +396,7 @@ void PersonFollowerSensorFusion::exectueCameraStateMachine(){
 
 void PersonFollowerSensorFusion::recognizeTarget(){
 
+    pickBestTarget();
 
 }
 
@@ -405,6 +407,11 @@ bool PersonFollowerSensorFusion::checkTargetCollision(){
 }
 void PersonFollowerSensorFusion::updateTimerCallback(const ros::TimerEvent&) {
 
+    if ( getRobotPoseOdomFrame(currentRobotPose_)) {
+
+        currentFullTargets_ = createFullTargets();
+
+    }
 
     if ( !mode_ ){
 
@@ -418,14 +425,7 @@ void PersonFollowerSensorFusion::updateTimerCallback(const ros::TimerEvent&) {
         followerState_ = IDLE;
     } 
 
-    if ( getRobotPoseOdomFrame(currentRobotPose_)) {
-
-        currentFullTargets_ = createFullTargets();
-
-    } else {
-
-        return;
-    }
+    
 
     if( !enalbeScanTargets_ ){
 
@@ -685,28 +685,28 @@ bool PersonFollowerSensorFusion::pickBestTarget() {
        
     }
 
-    /// lost the targert. use predicted 
-    if( minDist > 1.0  ) {
+    // /// lost the targert. use predicted 
+    // if( minDist > 1.0  ) {
 
-        return false;
-        // FullTarget kalmanTarget;
-        // kalmanTarget.hasLeg_ = true;
-        // kalmanTarget.hasCamera_ = false;
-        // kalmanTarget.legTarget_.position_.point.x =  trackingTarget_.x_pos_pred;
-        // kalmanTarget.legTarget_.position_.point.y =  trackingTarget_.y_pos_pred;
+    //     return false;
+    //     // FullTarget kalmanTarget;
+    //     // kalmanTarget.hasLeg_ = true;
+    //     // kalmanTarget.hasCamera_ = false;
+    //     // kalmanTarget.legTarget_.position_.point.x =  trackingTarget_.x_pos_pred;
+    //     // kalmanTarget.legTarget_.position_.point.y =  trackingTarget_.y_pos_pred;
         
-        // kalmanTarget.legTarget_.degAngle_  = calcTargetDegAngle(cv::Point2d(kalmanTarget.legTarget_.position_.point.x,
-        //     kalmanTarget.legTarget_.position_.point.y));
+    //     // kalmanTarget.legTarget_.degAngle_  = calcTargetDegAngle(cv::Point2d(kalmanTarget.legTarget_.position_.point.x,
+    //     //     kalmanTarget.legTarget_.position_.point.y));
 
-        // kalmanTarget.legTarget_.distance_ =  distanceCalculate(cv::Point2d(kalmanTarget.legTarget_.position_.point.x, 
-        //     kalmanTarget.legTarget_.position_.point.y),
-        //     cv::Point2d(currentRobotPose_.position.x, currentRobotPose_.position.y));
+    //     // kalmanTarget.legTarget_.distance_ =  distanceCalculate(cv::Point2d(kalmanTarget.legTarget_.position_.point.x, 
+    //     //     kalmanTarget.legTarget_.position_.point.y),
+    //     //     cv::Point2d(currentRobotPose_.position.x, currentRobotPose_.position.y));
 
-        // trackingTarget_.fullTarget_ = kalmanTarget;
-        // trackingTarget_.updateGlobalPositionAndAngle();
+    //     // trackingTarget_.fullTarget_ = kalmanTarget;
+    //     // trackingTarget_.updateGlobalPositionAndAngle();
 
-        // return true;
-    }
+    //     // return true;
+    // }
 
     ///if the target found
     if( closestIndex != -1 ){
