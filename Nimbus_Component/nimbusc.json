@@ -1,0 +1,166 @@
+{
+  "name": "nimbus/cogniteam-person-follower-sensor-fusion",
+  "category": "Algorithms/Object tracking",
+  "description": "A 360 degrees person following algorithm that can work with lidar (2d scan) and depth camera (openvino or ros-deep-learing detections)\nLicense BSD\ngit: https://github.com/cognimbus/nimbus.library/tree/master/Library/Components/cogniteam-person-follower-depth",
+
+  "className": "Ros1Component",
+  "environment": {
+    "dockerInfo": {
+      "image": "cognimbus/cogniteam-person-follower-sensor-fusion",
+      "containerId": "",
+      "imageSize": 0,
+      "commands": [       
+      ]      
+    }
+  },
+  "parameters": {
+    "parameters": [      
+      {
+        "name": "enable_scan_targets",
+        "booleanValue": "false"
+      },
+      {
+        "name": "algo_rate",
+        "doubleValue": 20.0
+      },
+      {
+        "name": "max_dist_init_camera_target",
+        "doubleValue": 5.0
+      },
+      {
+        "name": "continuous_search_duration",
+        "doubleValue": 5.0
+      },
+      {
+        "name": "max_distance_tracking",
+        "doubleValue": 5.0
+      },
+      {
+        "name": "max_distance_only_rotation",
+        "doubleValue": 1.0
+      },
+      {
+        "name": "min_speed_per_second",
+        "doubleValue": 0.05
+      },
+      {
+        "name": "max_speed_per_second",
+        "doubleValue": 0.5
+      },
+      {
+        "name": "angular_scale_factor",
+        "doubleValue": 0.8
+      }      
+ 
+    ]
+  },
+  "streams": {
+    "inputStreams": [
+      {
+        "name": "start_stop",
+        "type": "",
+        "ros_topic": {
+          "topic": "/start_stop",
+          "type": "Messages.std_msgs.Bool"
+        }
+      },
+      {
+        "name": "odom_base_link",
+        "type": "Nimbus.Messages.nav_msgs.Odometry",
+        "ros_tf": {
+          "base_frame": "odom",
+          "child_frame": "base_link",
+          "rate": 10.0
+        }
+      },
+      {
+        "name": "color_image_raw",
+        "type": "",
+        "rosTopic": {
+          "topic": "/color_image_raw",
+          "type": "Messages.sensor_msgs.Image"
+        }
+      },
+      {
+        "name": "depth_image_raw",
+        "type": "",
+        "rosTopic": {
+          "topic": "/camera/depth/image_rect",
+          "type": "Messages.sensor_msgs.Image"
+        }
+      },
+      {
+        "name": "camera_info",
+        "type": "",
+        "rosTopic": {
+          "topic": "/camera/depth/image_rect/camera_info",
+          "type": "Messages.sensor_msgs.CameraInfo"
+        }
+      },
+      {
+        "name": "detected_objects_vision_msg",
+        "type": "",
+        "rosTopic": {
+          "topic": "/vision_msg_detected_objects",
+          "type": "Messages.vision_msgs.Detection2DArray"
+        }
+      },
+      {
+        "name": "openvino_detected_objects",
+        "type": "",
+        "rosTopic": {
+          "topic": "/openvino_toolkit/detected_objects",
+          "type": "Messages.object_msgs.ObjectsInBoxes"
+        }
+      },
+      {
+        "name": "scan",
+        "type": "",
+        "rosTopic": {
+          "topic": "/scan",
+          "type": "Messages.sensor_msgs.LaserScan"
+        }
+      },
+      {
+        "name": "tf_base_link_to_camera_depth_optical_frame",
+        "type": "Messages.geometry_msgs.Pose",
+        "rosTf": {
+          "baseFrame": "base_link",
+          "childFrame": "camera_depth_optical_frame",
+          "rate": 10
+        }
+      },
+      {
+        "name": "odom",
+        "type": "",
+        "ros_topic": {
+          "topic": "/odom",
+          "type": "Messages.nav_msgs.Odometry"
+        }
+      }
+    ],
+    "outputStreams": [
+      {
+        "name": "raw_cmd_vel",
+        "type": "",
+        "rosTopic": {
+          "topic": "mobile_base/commands/velocity",
+          "type": "Messages.geometry_msgs.Twist"
+        }
+      },
+      {
+        "name": "debug_img",
+        "type": "",
+        "ros_topic": {
+          "topic": "/debug_img/compressed/",
+          "type": "Messages.sensor_msgs.CompressedImage"
+        }
+      }
+    ]
+  },
+  "ros": {
+    "baseFrame": "base_link",
+    "rate": 10,
+    "publishTfDevices": true
+  }
+}

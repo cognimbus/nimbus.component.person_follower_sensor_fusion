@@ -99,11 +99,22 @@ private:
 
     void legsTargetsCallback(const geometry_msgs::PoseArrayConstPtr &legsMsg);
 
+    void startStopCallback(const std_msgs::Bool::ConstPtr& msg);
+
     bool extractDepthFromBboxObject( cv::Point2d pix,
             const Mat &depthImg, geometry_msgs::PointStamped& pose);
 
     int  calcTargetDegAngle(const cv::Point2d& targetPoint );
        
+    void recognizeTarget();
+
+    void sendGoalToTarget();
+
+    bool checkTargetCollision();
+
+    void exectueCameraStateMachine();
+
+    void exectueSensorFusionStateMachine();
 
     geometry_msgs::PointStamped transformToByFrames(
         Point3d objectPoint3d, string base_Frame, string child_Frame) const ;
@@ -135,12 +146,20 @@ private:
 private:
 
     TrackingTarget trackingTarget_;
+    TRACKING_MODE trackingState_  = NONE;
 
     ros::WallTime startSearching_ ;
     bool startSeacrhingFlag_ = false;
     
+
+    //ros params
+    bool mode_;
+    bool enalbeScanTargets_ = false;
+    double algoRate_ = 30;
+
+
+
     /// params
-    double algoRate_ = 20;
     double continuousSearchDuration_ = 5; //second
     double maxDistInitCameraTarget_  = 5.0; // meters
     double maxDistanceTracking_ = 10.0;
@@ -178,6 +197,8 @@ private:
     string camera_depth_optical_frame_;
     cv::Mat currentDepthImg_;
 
+
+    ros::Subscriber startStopnSubscriber_;
 
     //rgb image
     image_transport::Publisher debugImgPublisher_;

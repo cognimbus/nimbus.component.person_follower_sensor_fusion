@@ -1,8 +1,10 @@
 <launch>    
     
+    <arg name="enable_scan_targets" default="false" />
+
     <arg name="target" default="person" />
 
-    <arg name="algo_rate" default="20.0" />
+    <arg name="algo_rate" default="30.0" />
     
     <arg name="max_dist_init_camera_target" default="5.0" />
     
@@ -15,10 +17,7 @@
     <arg name="min_speed_per_second" default="0.05" /> 
     <arg name="max_speed_per_second" default="0.5" /> 
     
-    <arg name="angular_scale_factor" default="0.8" /> 
-
-
-  
+    <arg name="angular_scale_factor" default="0.8" />   
 
     <!-- person follower -->  
     <node name="person_follower_sensor_fusion_node" pkg="person_follower_sensor_fusion" 
@@ -45,7 +44,11 @@
   <param name="forest_file" value="$(find leg_target_detector)/config/trained_leg_detector_res=0.33.yaml" />
   <param name="scan_topic" value="/scan" />
   <param name="fixed_frame" value="base_link"/>
-  <param name="scan_frequency" value="10"/>
-  <node pkg="leg_target_detector" type="detect_leg_clusters" name="detect_leg_clusters" output="screen"/>  
+  <param name="scan_frequency" value="10"/> 
 
+  <group if="$(arg enable_scan_targets)">
+
+      <node pkg="leg_target_detector" type="detect_leg_clusters" name="detect_leg_clusters" output="screen"/> 
+
+   </group>    
 </launch>

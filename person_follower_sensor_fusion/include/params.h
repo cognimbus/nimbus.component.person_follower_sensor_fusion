@@ -58,9 +58,23 @@ using namespace cv;
 enum FOLLOWER_STATE
 {
     IDLE,
+    INIT_TARGET,
+    DETECT_PERSONS,
+    RECOGNIZE_TARGET,
+    CHECK_TARGET_COLLISION,
+    SEARCHING_360_TARGET,
     TRACKING,
-    SEARCHING   
+    SEARCHING 
+    
 };
+
+enum TRACKING_MODE 
+{   
+    NONE,
+    CAME_FROM_INIT,
+    CAME_FROM_TRACKING
+};
+
 
 
 

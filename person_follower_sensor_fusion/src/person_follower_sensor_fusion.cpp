@@ -11,9 +11,27 @@ PersonFollowerSensorFusion::PersonFollowerSensorFusion()
     ros::NodeHandle node_;
     ros::NodeHandle nodePrivate("~");
 
-     follweTimer_ = node_.createTimer(ros::Rate(algoRate_), 
-            &PersonFollowerSensorFusion::updateTimerCallback, this);  
+    //ros pararms
+    nodePrivate.param("enable_scan_targets", enalbeScanTargets_, false);
+    nodePrivate.param("algo_rate", algoRate_, 30.0);
+    nodePrivate.param("target", trackingTargetClassName_,  string("person")); 
+    nodePrivate.param("max_dist_init_camera_target", maxDistInitCameraTarget_, 5.0); 
+    nodePrivate.param("continuous_search_duration", continuousSearchDuration_, 5.0); 
+    nodePrivate.param("max_distance_tracking", maxDistanceTracking_, 5.0);
+    nodePrivate.param("max_distance_only_rotation", maxDistOnlyRotation_, 1.0); 
+    nodePrivate.param("min_speed_per_second", minSpeedPerSecond_, 0.05); 
+    nodePrivate.param("max_speed_per_second", maxSpeedPerSecond_, 0.5); 
+    nodePrivate.param("angular_scale_factor", angularScaleFactor_, 0.8); 
+
+    //timer
+    startStopnSubscriber_ = node_.subscribe("/start_stop", 1,
+        &PersonFollowerSensorFusion::startStopCallback, this);   
+
     
+    follweTimer_ = node_.createTimer(ros::Rate(algoRate_), 
+            &PersonFollowerSensorFusion::updateTimerCallback, this);  
+
+    // subscribers
     rgbSubscriber_ = node_.subscribe("/color_image_raw", 1,
             &PersonFollowerSensorFusion::imageCallback, this);
 
@@ -21,8 +39,7 @@ PersonFollowerSensorFusion::PersonFollowerSensorFusion()
             &PersonFollowerSensorFusion::detectedObjectsCallback, this);
 
     odomSubscriber_ = node_.subscribe("/odom", 1,
-            &PersonFollowerSensorFusion::odomCallback, this);
-        
+            &PersonFollowerSensorFusion::odomCallback, this);        
 
     image_depth_sub.subscribe(node_, "/camera/depth/image_rect", 1);
     image_depth_sub.registerCallback(&PersonFollowerSensorFusion::depthCallback, this);
@@ -36,34 +53,23 @@ PersonFollowerSensorFusion::PersonFollowerSensorFusion()
     legsSubscriber_ = node_.subscribe("/legs_targets", 1,
         &PersonFollowerSensorFusion::legsTargetsCallback, this);   
 
+    // publishers
     twistCommandPublisher_ 
         = node_.advertise<geometry_msgs::Twist>("mobile_base/commands/velocity", 1, false);          
-   
+  
 
     image_transport::ImageTransport it(node_);
     debugImgPublisher_ = it.advertise("/debug_img", 1);
-    node_.param("/debug_img/compressed/jpeg_quality", 20);                     
-
-    
+    node_.param("/debug_img/compressed/jpeg_quality", 20);   
 
 
     cameraInfoInited_ = false; 
     initRgb_ = false;
     followerState_ = IDLE;
+    mode_ = false;
 
 
     trackingTarget_.initKalmanParams(); 
-
-    nodePrivate.param("target", trackingTargetClassName_,  string("person")); 
-    
-    nodePrivate.param("algo_rate", algoRate_, 20.0); 
-    nodePrivate.param("max_dist_init_camera_target", maxDistInitCameraTarget_, 5.0); 
-    nodePrivate.param("continuous_search_duration", continuousSearchDuration_, 5.0); 
-    nodePrivate.param("max_distance_tracking", maxDistanceTracking_, 5.0);
-    nodePrivate.param("max_distance_only_rotation", maxDistOnlyRotation_, 1.0); 
-    nodePrivate.param("min_speed_per_second", minSpeedPerSecond_, 0.05); 
-    nodePrivate.param("max_speed_per_second", maxSpeedPerSecond_, 0.5); 
-    nodePrivate.param("angular_scale_factor", angularScaleFactor_, 0.8); 
 
 
     cmdVelManager_.initParams(maxDistOnlyRotation_, minSpeedPerSecond_,
@@ -77,6 +83,16 @@ PersonFollowerSensorFusion::PersonFollowerSensorFusion()
 
 } 
 
+void PersonFollowerSensorFusion::startStopCallback(const std_msgs::Bool::ConstPtr& msg){
+
+    if( msg->data == true){
+
+        mode_ = true;
+    
+    } else {
+        mode_ = false;
+    }
+}
 void PersonFollowerSensorFusion::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
 
     currentRobotPose_ = msg->pose.pose;
@@ -260,141 +276,286 @@ void PersonFollowerSensorFusion::imageCallback(const sensor_msgs::ImageConstPtr 
     }
 }
 
-void PersonFollowerSensorFusion::updateTimerCallback(const ros::TimerEvent&) {
-    
-    if( cameraInfoInited_ && initRgb_) {
+void PersonFollowerSensorFusion::exectueSensorFusionStateMachine(){
 
-        cerr<<" cameraInfoInited_ initRgb_ good "<<endl;
-        if ( getRobotPoseOdomFrame(currentRobotPose_)) {
 
-            currentFullTargets_ = createFullTargets();
+}
 
-            // obstacle detection - ROBOT WILL STOP
-            if (obstaclesDetectManager_.detectObstacle(currentScanPoints_, currentRobotPose_)) {
+void PersonFollowerSensorFusion::sendGoalToTarget(){
 
-                cerr<<" detectObstacle, return "<<endl;
+
+
+}
+void PersonFollowerSensorFusion::exectueCameraStateMachine(){
+
+   
+
+    switch (followerState_)
+    {
+        
+        case IDLE: {  
+
+            cerr<<" IDLE "<<endl;
+
+            // nimbus stream pub person-follower-for-paul start_stop '{"data": 'true'}'
+            if( mode_ == true){
+
+                followerState_ = INIT_TARGET;
+
+                break;             
+            } else {
+                
                 auto cmdVel = cmdVelManager_.createZeroCmdVel();
-
                 twistCommandPublisher_.publish(cmdVel);
+
+                break;  
+            }
+        }
+        case INIT_TARGET: {  
+
+            cerr<<" INIT_TARGET "<<endl;
+
+            if( checkIfCanInitTaregt()){
+
+                trackingTarget_.fullTarget_ = currentFullTargets_[0];
+                trackingTarget_.updateGlobalPositionAndAngle();               
+
+                trackingState_ = CAME_FROM_INIT;
+                followerState_ = DETECT_PERSONS;
+                break;
+                
+
+            } else {
 
                 followerState_ = IDLE;
 
-                publishDebugImg();
+                auto cmdVel = cmdVelManager_.createZeroCmdVel();
+                twistCommandPublisher_.publish(cmdVel);
 
-                return;
-
+                break;
             }
-
-
-            switch (followerState_)
-            {
-
-                case IDLE: {  
-
-                    cerr<<"IDLE"<<endl;            
-                    if( checkIfCanInitTaregt()){
-
-
-                        trackingTarget_.fullTarget_ = currentFullTargets_[0];
-                        trackingTarget_.updateGlobalPositionAndAngle();
-
-                        trackingTarget_.updateKalmanParams();
-                      
-
-                        auto cmdVel = cmdVelManager_.createCmdVel(trackingTarget_);
-                    
-                        twistCommandPublisher_.publish(cmdVel);
-
-                        followerState_ = TRACKING;
-
-                        break;
-
-                    } else {
-
-                        followerState_ = IDLE;
-
-                        auto cmdVel = cmdVelManager_.createZeroCmdVel();
-
-                        twistCommandPublisher_.publish(cmdVel);
-
-                        break;
-                    }
-
-                }
-                case TRACKING: {
-                    
-                    cerr<<"TRACKING"<<endl;    
-
-                    // FullTarget target;
-                    if( pickBestTarget()) {
-                        
-                       
-
-                        trackingTarget_.updateKalmanMeas();
-
-                        trackingTarget_.kf.correct(trackingTarget_.meas);
-    
-
-                        auto cmdVel = cmdVelManager_.createCmdVel(trackingTarget_);
-                        twistCommandPublisher_.publish(cmdVel);
-
-                        lastCmdVel_ = cmdVel;     
-
-                        followerState_ = TRACKING;
-
-                        startSeacrhingFlag_ = false;
-
-                        break;                  
-
-                    } else {                     
-
-                        followerState_ = SEARCHING;
-
-                        if( startSeacrhingFlag_ == false){
-                            startSearching_ = ros::WallTime::now();
-                        }
-
-                        break;     
-                    }
-                    
-                }  
-                case SEARCHING: {
-
-                    cerr<<" SEARCHING "<<endl;
-                    startSeacrhingFlag_ = true;
-
-                    auto end = ros::WallTime::now();
-                    auto duration = (end - startSearching_).toSec();
-                    if (duration > continuousSearchDuration_ && startSeacrhingFlag_ == true){
-                        
-                        followerState_ = IDLE;
-
-                        startSeacrhingFlag_ = false;
-
-                        break;
-
-                    }
-
-                    auto cmdVel = cmdVelManager_.createCmdVel(trackingTarget_);
-                    twistCommandPublisher_.publish(cmdVel);
-
-                    followerState_ = TRACKING;
-
-                    break; 
-
-                }
-               
-            }
-
-            publishDebugImg();
-        } else {
-
-            cerr<<" getRobotPoseOdomFrame "<<endl;
         }
+        case DETECT_PERSONS: {  
+
+            cerr<<" DETECT_PERSONS "<<endl;
+
+            if( currentFullTargets_.size() > 0){
+                
+                followerState_ = RECOGNIZE_TARGET;                
+            } 
+            else {
+
+                if( trackingState_ == CAME_FROM_INIT ){
+
+                    followerState_ = IDLE;
+                    break;
+                }
+                if( trackingState_ == CAME_FROM_TRACKING ){
+
+                    followerState_ = SEARCHING_360_TARGET;
+                    break;
+                }
+            }
+        }
+        case RECOGNIZE_TARGET: {  
+
+            cerr<<" RECOGNIZE_TARGET "<<endl;
+
+            trackingState_ = CAME_FROM_TRACKING;
+
+            recognizeTarget();
+
+            bool res = checkTargetCollision();
+
+            if( !res) {
+                // no collsions
+                auto cmdVel = cmdVelManager_.createCmdVel(trackingTarget_);            
+                twistCommandPublisher_.publish(cmdVel);
+
+                followerState_ = DETECT_PERSONS;
+                break;
+            
+            } else {
+
+                // there collision ,send goal to the target
+                sendGoalToTarget();
+                
+                followerState_ = DETECT_PERSONS;
+                break;
+            }
+        }
+        case SEARCHING_360_TARGET: { 
+
+            cerr<<" RECOGNIZE_TARGET "<<endl;
+
+        }
+    }
+
+}
+
+void PersonFollowerSensorFusion::recognizeTarget(){
+
+
+}
+
+bool PersonFollowerSensorFusion::checkTargetCollision(){
+
+
+    return false;
+}
+void PersonFollowerSensorFusion::updateTimerCallback(const ros::TimerEvent&) {
+
+
+    if ( !mode_ ){
+
+        cerr<<" mode is "<<mode_<<endl;
+        followerState_ = IDLE;
+        return;
+    }   
+
+    if( !cameraInfoInited_ ||  !initRgb_ ){
+
+        followerState_ = IDLE;
+    } 
+
+    if( !enalbeScanTargets_ ){
+
+        exectueCameraStateMachine();
+
+    } else {
+
+        exectueSensorFusionStateMachine();
+    }
+    // if ( getRobotPoseOdomFrame(currentRobotPose_)) {
+
+    //     currentFullTargets_ = createFullTargets();
+
+    //     // obstacle detection - ROBOT WILL STOP
+    //     if (obstaclesDetectManager_.detectObstacle(currentScanPoints_, currentRobotPose_)) {
+
+    //         cerr<<" detectObstacle, return "<<endl;
+    //         auto cmdVel = cmdVelManager_.createZeroCmdVel();
+
+    //         twistCommandPublisher_.publish(cmdVel);
+
+    //         followerState_ = IDLE;
+
+    //         publishDebugImg();
+
+    //         return;
+
+    //     }
+
+
+    //     switch (followerState_)
+    //     {
+
+    //         case IDLE: {  
+
+    //             cerr<<"IDLE"<<endl;            
+    //             if( checkIfCanInitTaregt()){
+
+
+    //                 trackingTarget_.fullTarget_ = currentFullTargets_[0];
+    //                 trackingTarget_.updateGlobalPositionAndAngle();
+
+    //                 trackingTarget_.updateKalmanParams();
+                    
+
+    //                 auto cmdVel = cmdVelManager_.createCmdVel(trackingTarget_);
+                
+    //                 twistCommandPublisher_.publish(cmdVel);
+
+    //                 followerState_ = TRACKING;
+
+    //                 break;
+
+    //             } else {
+
+    //                 followerState_ = IDLE;
+
+    //                 auto cmdVel = cmdVelManager_.createZeroCmdVel();
+
+    //                 twistCommandPublisher_.publish(cmdVel);
+
+    //                 break;
+    //             }
+
+    //         }
+    //         case TRACKING: {
+                
+    //             cerr<<"TRACKING"<<endl;    
+
+    //             // FullTarget target;
+    //             if( pickBestTarget()) {
+                    
+                    
+
+    //                 trackingTarget_.updateKalmanMeas();
+
+    //                 trackingTarget_.kf.correct(trackingTarget_.meas);
+
+
+    //                 auto cmdVel = cmdVelManager_.createCmdVel(trackingTarget_);
+    //                 twistCommandPublisher_.publish(cmdVel);
+
+    //                 lastCmdVel_ = cmdVel;     
+
+    //                 followerState_ = TRACKING;
+
+    //                 startSeacrhingFlag_ = false;
+
+    //                 break;                  
+
+    //             } else {                     
+
+    //                 followerState_ = SEARCHING;
+
+    //                 if( startSeacrhingFlag_ == false){
+    //                     startSearching_ = ros::WallTime::now();
+    //                 }
+
+    //                 break;     
+    //             }
+                
+    //         }  
+    //         case SEARCHING: {
+
+    //             cerr<<" SEARCHING "<<endl;
+    //             startSeacrhingFlag_ = true;
+
+    //             auto end = ros::WallTime::now();
+    //             auto duration = (end - startSearching_).toSec();
+    //             if (duration > continuousSearchDuration_ && startSeacrhingFlag_ == true){
+                    
+    //                 followerState_ = IDLE;
+
+    //                 startSeacrhingFlag_ = false;
+
+    //                 break;
+
+    //             }
+
+    //             auto cmdVel = cmdVelManager_.createCmdVel(trackingTarget_);
+    //             twistCommandPublisher_.publish(cmdVel);
+
+    //             followerState_ = TRACKING;
+
+    //             break; 
+
+    //         }
+            
+    //     }
+
+    //     publishDebugImg();
+
+    // } else {
+
+    //     cerr<<" erro get robot's pose !!!!!!!  "<<endl;
+    // }
         
         
-    }  
-    
+   
       
 }
 
@@ -564,7 +725,7 @@ double PersonFollowerSensorFusion::getRobotHeading(const geometry_msgs::Pose &po
 bool PersonFollowerSensorFusion::checkIfCanInitTaregt() const  {
 
 
-    if( currentFullTargets_.size() == 1 ){
+    if( currentFullTargets_.size() > 0 ){
 
         if( currentFullTargets_[0].hasCamera_ == true){
 
