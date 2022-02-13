@@ -9,7 +9,19 @@
       "image": "cognimbus/cogniteam-person-follower-sensor-fusion",
       "containerId": "",
       "imageSize": 0,
-      "commands": [       
+      "commands": [ 
+        "person_follower_sensor_fusion",
+        "follower.launch",        
+        "enable_scan_targets:=${enable_scan_targets}",
+        "algo_rate:=${algo_rate}",
+        "max_dist_init_camera_target:=${max_dist_init_camera_target}",
+        "continuous_search_duration:=${continuous_search_duration}",
+        "max_distance_tracking:=${max_distance_tracking}",
+        "max_distance_only_rotation:=${max_distance_only_rotation}",
+        "min_speed_per_second:=${min_speed_per_second}",
+        "max_speed_per_second:=${max_speed_per_second}",
+        "angular_scale_factor:=${angular_scale_factor}",
+        "--screen"      
       ]      
     }
   },
