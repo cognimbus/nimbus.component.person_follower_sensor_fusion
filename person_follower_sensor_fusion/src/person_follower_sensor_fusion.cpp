@@ -288,7 +288,7 @@ void PersonFollowerSensorFusion::sendGoalToTarget(){
 }
 void PersonFollowerSensorFusion::exectueCameraStateMachine(){
 
-   
+    
 
     switch (followerState_)
     {
@@ -417,6 +417,15 @@ void PersonFollowerSensorFusion::updateTimerCallback(const ros::TimerEvent&) {
 
         followerState_ = IDLE;
     } 
+
+    if ( getRobotPoseOdomFrame(currentRobotPose_)) {
+
+        currentFullTargets_ = createFullTargets();
+
+    } else {
+
+        return;
+    }
 
     if( !enalbeScanTargets_ ){
 
