@@ -316,7 +316,7 @@ void PersonFollowerSensorFusion::exectueCameraStateMachine(){
             int resIndex = checkIfCanInitTaregt();
             
             if( resIndex != -1 ){
-                
+                cerr<<" the index is "<<resIndex<<endl;
                 trackingTarget_.fullTarget_ = currentFullTargets_[resIndex];
                 trackingTarget_.updateGlobalPositionAndAngle();               
 
@@ -626,11 +626,11 @@ bool PersonFollowerSensorFusion::pickBestTarget() {
 
     
 
-    ///kalman
-    double width = trackingTarget_.state.at<float>(4);
-    double height = trackingTarget_.state.at<float>(5);
-    trackingTarget_.x_pos_pred = trackingTarget_.state.at<float>(0) ;
-    trackingTarget_.y_pos_pred =  trackingTarget_.state.at<float>(1);
+    // ///kalman
+    // double width = trackingTarget_.state.at<float>(4);
+    // double height = trackingTarget_.state.at<float>(5);
+    // trackingTarget_.x_pos_pred = trackingTarget_.state.at<float>(0) ;
+    // trackingTarget_.y_pos_pred =  trackingTarget_.state.at<float>(1);
 
 
 
@@ -638,7 +638,8 @@ bool PersonFollowerSensorFusion::pickBestTarget() {
 
     double minDist = 9999;
 
-    cv::Point2d predictedTarget(trackingTarget_.x_pos_pred, trackingTarget_.y_pos_pred); //kalman
+    cv::Point2d predictedTarget(trackingTarget_.globalPosition_.point.x, 
+        trackingTarget_.globalPosition_.point.y); //kalman
 
     // loop over all targets
     for(int i =0; i < currentFullTargets_.size(); i++ ) {
@@ -648,7 +649,8 @@ bool PersonFollowerSensorFusion::pickBestTarget() {
 
             // merged
             double distance =  distanceCalculate(
-                cv::Point2d(currentFullTargets_[i].mergedTargetPosition_.point.x, currentFullTargets_[i].mergedTargetPosition_.point.y),
+                cv::Point2d(currentFullTargets_[i].mergedTargetPosition_.point.x,
+                currentFullTargets_[i].mergedTargetPosition_.point.y),
                 predictedTarget);
 
             if( distance < minDist ){
@@ -737,12 +739,14 @@ int PersonFollowerSensorFusion::checkIfCanInitTaregt()   {
     int index = -1;
     int min = 9999;
 
+
     for(int i = 0; i < currentFullTargets_.size(); i++ ){
         
         if( !currentFullTargets_[i].hasCamera_){
             continue;
         }
 
+        cerr<<" i "<<i<<endl;
         if( currentFullTargets_[i].cameraTarget_.distance_ < maxDistInitCameraTarget_ ){ //meters
             
             int distFromCenter = abs(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.x - center.x);
@@ -755,7 +759,7 @@ int PersonFollowerSensorFusion::checkIfCanInitTaregt()   {
         
     }
         
-        
+    
    
 
     return index;
@@ -839,8 +843,8 @@ void PersonFollowerSensorFusion::detectedObjectsCallback(const object_msgs::Obje
             
     }    
 
-    // imshow("depthGrayscale ",depthGrayscale);
-    // waitKey(1);
+    imshow("depthGrayscale ",depthGrayscale);
+    waitKey(1);
         
 }
 
