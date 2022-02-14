@@ -89,7 +89,7 @@ private:
 
     void detectedObjectsCallback(const object_msgs::ObjectsInBoxes::Ptr &objects);
             
-    void cameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &cam_info);
+    void depthCameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &cam_info);
 
     void depthCallback(const sensor_msgs::ImageConstPtr &image);
 
@@ -100,6 +100,9 @@ private:
     void legsTargetsCallback(const geometry_msgs::PoseArrayConstPtr &legsMsg);
 
     void startStopCallback(const std_msgs::Bool::ConstPtr& msg);
+
+    void colorCameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &cam_info);
+
 
     bool extractDepthFromBboxObject( cv::Point2d pix,
             const Mat &depthImg, geometry_msgs::PointStamped& pose);
@@ -132,7 +135,7 @@ private:
 
     bool getRobotPoseOdomFrame(geometry_msgs::Pose& robotPose);
 
-    bool checkIfCanInitTaregt() const;
+    int checkIfCanInitTaregt() ;
 
     double getRobotHeading(const geometry_msgs::Pose &pose) const;
 
@@ -191,20 +194,22 @@ private:
     // depth
     ros::NodeHandle node_;
     message_filters::Subscriber<sensor_msgs::Image> image_depth_sub;
-    message_filters::Subscriber<sensor_msgs::CameraInfo> info_sub;
-    image_geometry::PinholeCameraModel pinholeCameraModel_;
-    bool cameraInfoInited_ = false;
+    message_filters::Subscriber<sensor_msgs::CameraInfo> dpeth_info_sub;
+    image_geometry::PinholeCameraModel depthPinholeCameraModel_;
+
+    image_geometry::PinholeCameraModel colorPinholeCameraModel_;
+    message_filters::Subscriber<sensor_msgs::CameraInfo> color_info_sub;
+
+
+    bool depthCameraInfoInited_ = false;
+    bool colorCameraInfoInited_;
     string camera_depth_optical_frame_;
     cv::Mat currentDepthImg_;
-
+    bool initDepthCamera_ = false;
 
     ros::Subscriber startStopnSubscriber_;
 
-    //rgb image
     image_transport::Publisher debugImgPublisher_;
-    ros::Subscriber rgbSubscriber_;
-    cv::Mat currentRgbImg_;
-    bool initRgb_ = false;
 
     //laser
     ros::Subscriber laserScanSubscriber_;

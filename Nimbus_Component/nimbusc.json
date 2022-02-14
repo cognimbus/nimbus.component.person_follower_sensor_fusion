@@ -33,7 +33,7 @@
       },
       {
         "name": "algo_rate",
-        "doubleValue": 20.0
+        "doubleValue": 15.0
       },
       {
         "name": "max_dist_init_camera_target",
@@ -84,15 +84,7 @@
           "child_frame": "base_link",
           "rate": 10.0
         }
-      },
-      {
-        "name": "color_image_raw",
-        "type": "",
-        "rosTopic": {
-          "topic": "/color_image_raw",
-          "type": "Messages.sensor_msgs.Image"
-        }
-      },
+      },      
       {
         "name": "depth_image_raw",
         "type": "",
@@ -102,10 +94,18 @@
         }
       },
       {
-        "name": "camera_info",
+        "name": "depth_camera_info",
         "type": "",
         "rosTopic": {
           "topic": "/camera/depth/image_rect/camera_info",
+          "type": "Messages.sensor_msgs.CameraInfo"
+        }
+      },
+      {
+        "name": "color_camera_info",
+        "type": "",
+        "rosTopic": {
+          "topic": "/camera/color/camera_info",
           "type": "Messages.sensor_msgs.CameraInfo"
         }
       },

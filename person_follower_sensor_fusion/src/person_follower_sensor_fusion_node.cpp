@@ -38,12 +38,12 @@
  #include "../include/person_follower_sensor_fusion_node.h"
 
 
-// int main(int argc, char **argv)
-// {
-//     ros::init(argc, argv, "person_follower_sensor_fusion_node");
-//     ros::NodeHandle node;
-//     PersonFollowerSensorFusion follower;
-//     ros::spin();
-//     return 0;
-// }
+int main(int argc, char **argv)
+{
+    ros::init(argc, argv, "person_follower_sensor_fusion_node");
+    ros::NodeHandle node;
+    PersonFollowerSensorFusion follower;
+    ros::spin();
+    return 0;
+}
 

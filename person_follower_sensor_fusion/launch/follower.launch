@@ -4,7 +4,7 @@
 
     <arg name="target" default="person" />
 
-    <arg name="algo_rate" default="30.0" />
+    <arg name="algo_rate" default="15.0" />
     
     <arg name="max_dist_init_camera_target" default="5.0" />
     

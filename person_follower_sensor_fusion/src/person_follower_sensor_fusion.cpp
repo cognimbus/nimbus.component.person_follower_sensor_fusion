@@ -23,17 +23,17 @@ PersonFollowerSensorFusion::PersonFollowerSensorFusion()
     nodePrivate.param("max_speed_per_second", maxSpeedPerSecond_, 0.5); 
     nodePrivate.param("angular_scale_factor", angularScaleFactor_, 0.8); 
 
-    //timer
-    startStopnSubscriber_ = node_.subscribe("/start_stop", 1,
-        &PersonFollowerSensorFusion::startStopCallback, this);   
+      
 
+    //timer
     
     follweTimer_ = node_.createTimer(ros::Rate(algoRate_), 
             &PersonFollowerSensorFusion::updateTimerCallback, this);  
 
-    // subscribers
-    rgbSubscriber_ = node_.subscribe("/color_image_raw", 1,
-            &PersonFollowerSensorFusion::imageCallback, this);
+    startStopnSubscriber_ = node_.subscribe("/start_stop", 1,
+        &PersonFollowerSensorFusion::startStopCallback, this);
+    
+   
 
     objectSubscriber_ = node_.subscribe("/openvino_toolkit/detected_objects", 1,
             &PersonFollowerSensorFusion::detectedObjectsCallback, this);
@@ -44,8 +44,12 @@ PersonFollowerSensorFusion::PersonFollowerSensorFusion()
     image_depth_sub.subscribe(node_, "/camera/depth/image_rect", 1);
     image_depth_sub.registerCallback(&PersonFollowerSensorFusion::depthCallback, this);
 
-    info_sub.subscribe(node_, "/camera/depth/image_rect/camera_info", 1);
-    info_sub.registerCallback(&PersonFollowerSensorFusion::cameraInfoCallback, this);   
+    dpeth_info_sub.subscribe(node_, "/camera/depth/image_rect/camera_info", 1);
+    dpeth_info_sub.registerCallback(&PersonFollowerSensorFusion::depthCameraInfoCallback, this);   
+
+    color_info_sub.subscribe(node_, "/camera/color/camera_info", 1);
+    color_info_sub.registerCallback(&PersonFollowerSensorFusion::colorCameraInfoCallback, this);
+    
 
     laserScanSubscriber_ = node_.subscribe("/scan", 1,
         &PersonFollowerSensorFusion::scanCallback, this);
@@ -63,8 +67,8 @@ PersonFollowerSensorFusion::PersonFollowerSensorFusion()
     node_.param("/debug_img/compressed/jpeg_quality", 20);   
 
 
-    cameraInfoInited_ = false; 
-    initRgb_ = false;
+    depthCameraInfoInited_ = false; 
+    initDepthCamera_ = false;
     followerState_ = IDLE;
     mode_ = true;
 
@@ -131,7 +135,7 @@ void PersonFollowerSensorFusion::legsTargetsCallback(const geometry_msgs::PoseAr
 
     currentLegsTargets_.clear();
 
-    if (cameraInfoInited_) {
+    if (depthCameraInfoInited_) {
 
         for(int i = 0; i < legsMsg->poses.size(); i++) {
 
@@ -187,38 +191,44 @@ int  PersonFollowerSensorFusion::calcTargetDegAngle(const cv::Point2d& targetPoi
     
 
 }
-void PersonFollowerSensorFusion::cameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &cam_info) {
+void PersonFollowerSensorFusion::depthCameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &cam_info) {
 
-    if ( cameraInfoInited_ == false)
+    if ( depthPinholeCameraModel_.fromCameraInfo(*cam_info) )
     {
-        if ( pinholeCameraModel_.fromCameraInfo(*cam_info) && initRgb_)
-        {
-            cameraInfoInited_ = true;
-        }
+        depthCameraInfoInited_ = true;
     }
 }
 
+void PersonFollowerSensorFusion::colorCameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &cam_info) {
+
+    if ( colorPinholeCameraModel_.fromCameraInfo(*cam_info) )
+    {
+        colorCameraInfoInited_ = true;
+    }
+}
+
+
 void PersonFollowerSensorFusion::depthCallback(const sensor_msgs::ImageConstPtr &image) {
 
-    if (cameraInfoInited_ && initRgb_) {
+    camera_depth_optical_frame_ = image->header.frame_id;
 
-        camera_depth_optical_frame_ = image->header.frame_id;
+    initDepthCamera_ = true;
 
-        cv_bridge::CvImagePtr cvBridgePtr =
-                cv_bridge::toCvCopy(image, sensor_msgs::image_encodings::TYPE_32FC1);
+    cv_bridge::CvImagePtr cvBridgePtr =
+            cv_bridge::toCvCopy(image, sensor_msgs::image_encodings::TYPE_32FC1);
 
-        currentDepthImg_ = cvBridgePtr->image;      
-    }
+    currentDepthImg_ = cvBridgePtr->image;      
+   
 }
 
 bool PersonFollowerSensorFusion::extractDepthFromBboxObject( cv::Point2d pix,
             const Mat &depthImg, geometry_msgs::PointStamped& pose) {
 
-    float cx = pinholeCameraModel_.cx();
-    float cy = pinholeCameraModel_.cy();
+    float cx = depthPinholeCameraModel_.cx();
+    float cy = depthPinholeCameraModel_.cy();
 
-    float fx = pinholeCameraModel_.fx();
-    float fy = pinholeCameraModel_.fy();
+    float fx = depthPinholeCameraModel_.fx();
+    float fy = depthPinholeCameraModel_.fy();
 
     float d = depthImg.at<float>(pix.y, pix.x) / 1000; /// IN METERS
     
@@ -249,7 +259,7 @@ geometry_msgs::PointStamped PersonFollowerSensorFusion::transformToByFrames(
     pointStampedIn.point.z = objectPoint3d.z;
     
     if (tfListener_.waitForTransform(base_Frame, child_Frame, 
-            ros::Time(0), ros::Duration(0.1))) {
+            ros::Time(0), ros::Duration(0.5))) {
 
         tfListener_.transformPoint(base_Frame, pointStampedIn, pointStampedOut);
         return pointStampedOut;
@@ -261,20 +271,7 @@ geometry_msgs::PointStamped PersonFollowerSensorFusion::transformToByFrames(
 
 }
 
-void PersonFollowerSensorFusion::imageCallback(const sensor_msgs::ImageConstPtr &msg)
-{
-    try
-    {
-        currentRgbImg_ = cv_bridge::toCvShare(msg, "bgr8")->image;
-        
-        initRgb_ = true;
-       
-    }
-    catch (cv_bridge::Exception &e)
-    {
-        ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
-    }
-}
+
 
 void PersonFollowerSensorFusion::exectueSensorFusionStateMachine(){
 
@@ -288,14 +285,14 @@ void PersonFollowerSensorFusion::sendGoalToTarget(){
 }
 void PersonFollowerSensorFusion::exectueCameraStateMachine(){
 
-    
+    // publishDebugImg();    
 
     switch (followerState_)
     {
         
         case IDLE: {  
 
-            cerr<<" IDLE "<<endl;
+            cerr<<" IDLE "<<mode_<<endl;
 
             // nimbus stream pub person-follower-for-paul start_stop '{"data": 'true'}'
             if( mode_ == true){
@@ -315,10 +312,12 @@ void PersonFollowerSensorFusion::exectueCameraStateMachine(){
         case INIT_TARGET: {  
 
             cerr<<" INIT_TARGET "<<endl;
-
-            if( checkIfCanInitTaregt()){
-
-                trackingTarget_.fullTarget_ = currentFullTargets_[0];
+            
+            int resIndex = checkIfCanInitTaregt();
+            
+            if( resIndex != -1 ){
+                
+                trackingTarget_.fullTarget_ = currentFullTargets_[resIndex];
                 trackingTarget_.updateGlobalPositionAndAngle();               
 
                 trackingState_ = CAME_FROM_INIT;
@@ -420,7 +419,7 @@ void PersonFollowerSensorFusion::updateTimerCallback(const ros::TimerEvent&) {
         return;
     }   
 
-    if( !cameraInfoInited_ ||  !initRgb_ ){
+    if( !depthCameraInfoInited_ ||  !initDepthCamera_ ){
 
         followerState_ = IDLE;
     } 
@@ -731,26 +730,51 @@ double PersonFollowerSensorFusion::getRobotHeading(const geometry_msgs::Pose &po
 
 
 
-bool PersonFollowerSensorFusion::checkIfCanInitTaregt() const  {
+int PersonFollowerSensorFusion::checkIfCanInitTaregt()   {
 
+    cv::Point center(depthPinholeCameraModel_.cx(),depthPinholeCameraModel_.cy());
 
-    if( currentFullTargets_.size() > 0 ){
+    int index = -1;
+    int min = 9999;
 
-        if( currentFullTargets_[0].hasCamera_ == true){
-
-            if( currentFullTargets_[0].cameraTarget_.distance_ < maxDistInitCameraTarget_ ){ //meters
-                return true;
-            }
-            
+    for(int i = 0; i < currentFullTargets_.size(); i++ ){
+        
+        if( !currentFullTargets_[i].hasCamera_){
+            continue;
         }
-    }
 
-    return false;
+        if( currentFullTargets_[i].cameraTarget_.distance_ < maxDistInitCameraTarget_ ){ //meters
+            
+            int distFromCenter = abs(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.x - center.x);
+            if( distFromCenter < min ){
+
+                min = distFromCenter;
+                index = i;
+            }
+        }
+        
+    }
+        
+        
+   
+
+    return index;
 
 }
 
 void PersonFollowerSensorFusion::detectedObjectsCallback(const object_msgs::ObjectsInBoxes::Ptr &objects)
-{    
+{   
+
+    if( !initDepthCamera_){
+        return;
+
+    } 
+
+    if( !depthCameraInfoInited_){
+
+        return;
+    }
+
     currentCameraTargets_.clear();
 
     cv::Mat depthGrayscale;
@@ -760,67 +784,63 @@ void PersonFollowerSensorFusion::detectedObjectsCallback(const object_msgs::Obje
     currentDepthImg_.convertTo(depthGrayscale, CV_8UC1, (255 / (maxVal - minVal)));
     cv::Mat distanceTransformImg;
     distanceTransform(depthGrayscale, distanceTransformImg, DIST_L2, 3);
-    normalize(distanceTransformImg, distanceTransformImg, 0, 1.0, NORM_MINMAX);
+    normalize(distanceTransformImg, distanceTransformImg, 0, 1.0, NORM_MINMAX);   
 
 
-    if (cameraInfoInited_) {
+   
+    for (int i = 0; i < objects->objects_vector.size(); i++) {
 
-        cv::Mat depthGrayscale;
-            double minVal;
-            double maxVal;
-            minMaxLoc(currentDepthImg_, &minVal, &maxVal);
-            currentDepthImg_.convertTo(depthGrayscale, CV_8UC1, (255 / (maxVal - minVal)));
+        if( objects->objects_vector[i].object.object_name != trackingTargetClassName_){
+            continue;
+        }
 
+        cv::Rect rgb_object_rect(objects->objects_vector[i].roi.x_offset,
+            objects->objects_vector[i].roi.y_offset,
+            objects->objects_vector[i].roi.width,
+            objects->objects_vector[i].roi.height);
 
-        for (int i = 0; i < objects->objects_vector.size(); i++) {
+        //scaling depth b_box
+        cv::Rect depth_bounding_box ;
+        double scale_x = double((double)currentDepthImg_.cols / (double) colorPinholeCameraModel_.cx() * 2 );
+        double scale_y = double((double)currentDepthImg_.rows / (double) colorPinholeCameraModel_.cy() * 2 );
+        depth_bounding_box.width = rgb_object_rect.width * scale_x;
+        depth_bounding_box.height = rgb_object_rect.height * scale_y;
+        depth_bounding_box.x = rgb_object_rect.x * scale_x;
+        depth_bounding_box.y = rgb_object_rect.y * scale_y;      
 
-            if( objects->objects_vector[i].object.object_name != trackingTargetClassName_){
-                continue;
-            }
+        cv::rectangle(depthGrayscale, depth_bounding_box, cv::Scalar(0,0,0), 2);
+        
 
-            cv::Rect rgb_object_rect(objects->objects_vector[i].roi.x_offset,
-               objects->objects_vector[i].roi.y_offset,
-               objects->objects_vector[i].roi.width,
-               objects->objects_vector[i].roi.height);
-
-            //scaling depth b_box
-            cv::Rect depth_bounding_box ;
-            double scale_x = double((double)currentDepthImg_.cols / (double) currentRgbImg_.cols );
-            double scale_y = double((double)currentDepthImg_.rows / (double) currentRgbImg_.rows );
-            depth_bounding_box.width = rgb_object_rect.width * scale_x;
-            depth_bounding_box.height = rgb_object_rect.height * scale_y;
-            depth_bounding_box.x = rgb_object_rect.x * scale_x;
-            depth_bounding_box.y = rgb_object_rect.y * scale_y;            
-
-            cv::Point2d depthPix;
-            if( findLargestDepthBlob(depth_bounding_box, distanceTransformImg, depthPix) ) {
+        cv::Point2d depthPix;
+        if( findLargestDepthBlob(depth_bounding_box, distanceTransformImg, depthPix) ) {
+            
+            geometry_msgs::PointStamped objectPose;         
+            if(extractDepthFromBboxObject(depthPix, currentDepthImg_, objectPose)) {                    
                 
-                geometry_msgs::PointStamped objectPose;         
-                if(extractDepthFromBboxObject(depthPix, currentDepthImg_, objectPose)) {                    
-                    
 
-                    bool noiseDepth = checkIfDepthIsNoiseByLaser(objectPose);
-                    if( noiseDepth){
-                        continue;
-                    }
-                    CameraTarget target;
-                    target.position_ = objectPose;
-                    target.rgb_bounding_box_ = rgb_object_rect;
-                    target.rgbPix_.x = depthPix.x / scale_x ;
-                    target.rgbPix_.y = depthPix.y / scale_y ;
-                     target.degAngle_   = calcTargetDegAngle(cv::Point2d(target.position_.point.x, target.position_.point.y));
-                    target.distance_ =  distanceCalculate(cv::Point2d(target.position_.point.x, target.position_.point.y),
-                     cv::Point2d(currentRobotPose_.position.x, currentRobotPose_.position.y));
+                bool noiseDepth = checkIfDepthIsNoiseByLaser(objectPose);
+                if( noiseDepth){
+                    continue;
+                }
+                CameraTarget target;
+                target.position_ = objectPose;
+                target.rgb_bounding_box_ = rgb_object_rect;
+                target.rgbPix_.x = depthPix.x / scale_x ;
+                target.rgbPix_.y = depthPix.y / scale_y ;
+                    target.degAngle_   = calcTargetDegAngle(cv::Point2d(target.position_.point.x, target.position_.point.y));
+                target.distance_ =  distanceCalculate(cv::Point2d(target.position_.point.x, target.position_.point.y),
+                    cv::Point2d(currentRobotPose_.position.x, currentRobotPose_.position.y));
 
-                    currentCameraTargets_.push_back(target);
-                } 
+                currentCameraTargets_.push_back(target);
+            } 
 
-               
-            }
-                
-        }     
-     
-    }
+            
+        }
+            
+    }    
+
+    // imshow("depthGrayscale ",depthGrayscale);
+    // waitKey(1);
         
 }
 
@@ -991,6 +1011,7 @@ vector<FullTarget> PersonFollowerSensorFusion::createFullTargets() {
             fullTarget.mergeTargetAngle_ = fullTarget.legTarget_.degAngle_;
         
         } else {
+            
             //only camera
             fullTarget.cameraTarget_ = cameraTarget;
             fullTarget.hasCamera_ = true;  
@@ -1034,194 +1055,193 @@ vector<FullTarget> PersonFollowerSensorFusion::createFullTargets() {
 
 void PersonFollowerSensorFusion::publishDebugImg(){
 
-    double mapSizeW = MAP_W_METER * RESOULTION;
-    double mapSizeH = MAP_W_METER * RESOULTION;
+    // double mapSizeW = MAP_W_METER * RESOULTION;
+    // double mapSizeH = MAP_W_METER * RESOULTION;
 
-    cv::Point2d center(mapSizeW / 2, mapSizeH / 2);
+    // cv::Point2d center(mapSizeW / 2, mapSizeH / 2);
 
-    cv::Mat debugImg(mapSizeH, mapSizeW, CV_8UC3, cv::Scalar(0));
+    // cv::Mat debugImg(mapSizeH, mapSizeW, CV_8UC3, cv::Scalar(0));
 
-    circle(debugImg, center, 4, Scalar(0, 255, 0), -1, 8, 0);
+    // circle(debugImg, center, 4, Scalar(0, 255, 0), -1, 8, 0);
 
 
-    //circle of radius serach
-    double dist = 0.2;
-    while (dist < MAP_W_METER){ 
-        circle(debugImg, center, dist * RESOULTION , Scalar(0, 100, 0), 1, 8, 0);
+    // //circle of radius serach
+    // double dist = 0.2;
+    // while (dist < MAP_W_METER){ 
+    //     circle(debugImg, center, dist * RESOULTION , Scalar(0, 100, 0), 1, 8, 0);
 
-        cv::Point p(center.x, center.y + (dist * RESOULTION) );
-        dist += 0.5;
-    }
+    //     cv::Point p(center.x, center.y + (dist * RESOULTION) );
+    //     dist += 0.5;
+    // }
     
     
 
 
-    // ROBOT
-    geometry_msgs::Pose robotPose;
-     cv::Point2d robotPosePix;
-    if (getRobotPoseOdomFrame(robotPose)){
+    // // ROBOT
+    // geometry_msgs::Pose robotPose;
+    //  cv::Point2d robotPosePix;
+    // if (getRobotPoseOdomFrame(robotPose)){
 
-         // robot pose odom frame
-        robotPosePix = cv::Point2d((robotPose.position.x * RESOULTION) + center.x,
-            ( robotPose.position.y * RESOULTION) + center.y);
+    //      // robot pose odom frame
+    //     robotPosePix = cv::Point2d((robotPose.position.x * RESOULTION) + center.x,
+    //         ( robotPose.position.y * RESOULTION) + center.y);
 
-        circle(debugImg, robotPosePix, 3, Scalar(255,127,80), 5, 8, 0); 
+    //     circle(debugImg, robotPosePix, 3, Scalar(255,127,80), 5, 8, 0); 
 
-        double heading = getRobotHeading(robotPose);
-        cv::Point2d headingPoint(robotPosePix.x + 30 * cos((heading)),
-                                    robotPosePix.y + 30 * sin((heading)));
-        cv::arrowedLine(debugImg, robotPosePix, headingPoint, Scalar(0,255,0), 2);
+    //     double heading = getRobotHeading(robotPose);
+    //     cv::Point2d headingPoint(robotPosePix.x + 30 * cos((heading)),
+    //                                 robotPosePix.y + 30 * sin((heading)));
+    //     cv::arrowedLine(debugImg, robotPosePix, headingPoint, Scalar(0,255,0), 2);
 
 
-        //camera angles
-        cv::Point2d leftCmaeraAngle(robotPosePix.x + 100 * cos(heading-(angles::from_degrees(30))),
-                                    robotPosePix.y + 100 * sin(heading-(angles::from_degrees(30))));
-        //camera angles
-        cv::Point2d rightCmaeraAngle(robotPosePix.x + 100 * cos(heading+(angles::from_degrees(30))),
-                                    robotPosePix.y + 100 * sin(heading+(angles::from_degrees((30)))));                            
-        cv::arrowedLine(debugImg, robotPosePix, leftCmaeraAngle, Scalar(255,255,255), 2); 
-        cv::arrowedLine(debugImg, robotPosePix, rightCmaeraAngle, Scalar(255,255,255), 2);   
+    //     //camera angles
+    //     cv::Point2d leftCmaeraAngle(robotPosePix.x + 100 * cos(heading-(angles::from_degrees(30))),
+    //                                 robotPosePix.y + 100 * sin(heading-(angles::from_degrees(30))));
+    //     //camera angles
+    //     cv::Point2d rightCmaeraAngle(robotPosePix.x + 100 * cos(heading+(angles::from_degrees(30))),
+    //                                 robotPosePix.y + 100 * sin(heading+(angles::from_degrees((30)))));                            
+    //     cv::arrowedLine(debugImg, robotPosePix, leftCmaeraAngle, Scalar(255,255,255), 2); 
+    //     cv::arrowedLine(debugImg, robotPosePix, rightCmaeraAngle, Scalar(255,255,255), 2);   
 
-        // robot only rotation radius                                  
-        circle(debugImg, robotPosePix, maxDistOnlyRotation_ * RESOULTION, Scalar(0, 128, 255), 1, 8, 0);      
+    //     // robot only rotation radius                                  
+    //     circle(debugImg, robotPosePix, maxDistOnlyRotation_ * RESOULTION, Scalar(0, 128, 255), 1, 8, 0);      
 
-        // max distance tracking     
-        cerr<<" maxDistanceTracking_ " <<maxDistanceTracking_<<endl;
+    //     // max distance tracking     
         
-        circle(debugImg, robotPosePix, maxDistanceTracking_ * RESOULTION, Scalar(153, 51, 0), 1, 8, 0);      
+    //     circle(debugImg, robotPosePix, maxDistanceTracking_ * RESOULTION, Scalar(153, 51, 0), 1, 8, 0);      
 
-    }
+    // }
 
     
-    for(int i =0; i < currentFullTargets_.size(); i++ ) {
+    // for(int i =0; i < currentFullTargets_.size(); i++ ) {
 
-        /// merged
-        if( currentFullTargets_[i].hasCamera_  == true && currentFullTargets_[i].hasLeg_ == true){
+    //     /// merged
+    //     if( currentFullTargets_[i].hasCamera_  == true && currentFullTargets_[i].hasLeg_ == true){
 
-            // merged
-            cv::Point2d mergedTarget((currentFullTargets_[i].mergedTargetPosition_.point.x * RESOULTION) + center.x,
-                ( currentFullTargets_[i].mergedTargetPosition_.point.y * RESOULTION) + center.y);
+    //         // merged
+    //         cv::Point2d mergedTarget((currentFullTargets_[i].mergedTargetPosition_.point.x * RESOULTION) + center.x,
+    //             ( currentFullTargets_[i].mergedTargetPosition_.point.y * RESOULTION) + center.y);
 
-            circle(debugImg, mergedTarget, 5, Scalar(0,255,255), 5, 8, 0);    
+    //         circle(debugImg, mergedTarget, 5, Scalar(0,255,255), 5, 8, 0);    
 
-            //camera : 
-            cv::Point2d cameraTarget((currentFullTargets_[i].cameraTarget_.position_.point.x * RESOULTION) + center.x,
-                ( currentFullTargets_[i].cameraTarget_.position_.point.y * RESOULTION) + center.y);
+    //         //camera : 
+    //         cv::Point2d cameraTarget((currentFullTargets_[i].cameraTarget_.position_.point.x * RESOULTION) + center.x,
+    //             ( currentFullTargets_[i].cameraTarget_.position_.point.y * RESOULTION) + center.y);
 
-            circle(debugImg, cameraTarget, 5, Scalar(255,0,255), -1, 8, 0);
+    //         circle(debugImg, cameraTarget, 5, Scalar(255,0,255), -1, 8, 0);
            
 
-            circle(currentRgbImg_, currentFullTargets_[i].cameraTarget_.rgbPix_, 5, Scalar(255,0,255), -1, 8, 0);  
-            cv::rectangle(currentRgbImg_, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_, cv::Scalar(0,255,0), 2);
+    //         circle(currentRgbImg_, currentFullTargets_[i].cameraTarget_.rgbPix_, 5, Scalar(255,0,255), -1, 8, 0);  
+    //         cv::rectangle(currentRgbImg_, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_, cv::Scalar(0,255,0), 2);
 
-            cv::Point p_angle(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.tl().x, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.height - 20);
-            cv::Point p_dist(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.tl().x, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.height - 40);
+    //         cv::Point p_angle(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.tl().x, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.height - 20);
+    //         cv::Point p_dist(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.tl().x, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.height - 40);
 
    
-            putText(currentRgbImg_,  "angle: " + to_string((int)currentFullTargets_[i].mergeTargetAngle_), p_angle,1, 1, Scalar(0,255,255));
-            putText(currentRgbImg_,  "dist: " + to_string((int)currentFullTargets_[i].cameraTarget_.distance_), p_dist,1, 1, Scalar(0,255,255));    
+    //         putText(currentRgbImg_,  "angle: " + to_string((int)currentFullTargets_[i].mergeTargetAngle_), p_angle,1, 1, Scalar(0,255,255));
+    //         putText(currentRgbImg_,  "dist: " + to_string((int)currentFullTargets_[i].cameraTarget_.distance_), p_dist,1, 1, Scalar(0,255,255));    
 
-            //leg: 
-            cv::Point2d legTarget((currentFullTargets_[i].legTarget_.position_.point.x * RESOULTION) + center.x,
-                ( currentFullTargets_[i].legTarget_.position_.point.y * RESOULTION) + center.y);
+    //         //leg: 
+    //         cv::Point2d legTarget((currentFullTargets_[i].legTarget_.position_.point.x * RESOULTION) + center.x,
+    //             ( currentFullTargets_[i].legTarget_.position_.point.y * RESOULTION) + center.y);
 
-            circle(debugImg, legTarget, 5, Scalar(255,255,0), -1, 8, 0);
+    //         circle(debugImg, legTarget, 5, Scalar(255,255,0), -1, 8, 0);
 
           
          
-        } // only camera
-        else  if( currentFullTargets_[i].hasCamera_  == true && currentFullTargets_[i].hasLeg_ == false) { 
+    //     } // only camera
+    //     else  if( currentFullTargets_[i].hasCamera_  == true && currentFullTargets_[i].hasLeg_ == false) { 
 
-            cv::Point2d cameraTarget((currentFullTargets_[i].cameraTarget_.position_.point.x * RESOULTION) + center.x,
-                ( currentFullTargets_[i].cameraTarget_.position_.point.y * RESOULTION) + center.y);
+    //         cv::Point2d cameraTarget((currentFullTargets_[i].cameraTarget_.position_.point.x * RESOULTION) + center.x,
+    //             ( currentFullTargets_[i].cameraTarget_.position_.point.y * RESOULTION) + center.y);
 
-            circle(debugImg, cameraTarget, 5, Scalar(255,0,255), -1, 8, 0);
-            // putText(debugImg,  to_string((int) currentFullTargets_[i].cameraTarget_.degAngle_),
-            //     cameraTarget,0.2, 1, Scalar(255, 255, 255));
+    //         circle(debugImg, cameraTarget, 5, Scalar(255,0,255), -1, 8, 0);
+    //         // putText(debugImg,  to_string((int) currentFullTargets_[i].cameraTarget_.degAngle_),
+    //         //     cameraTarget,0.2, 1, Scalar(255, 255, 255));
 
-            circle(currentRgbImg_, currentFullTargets_[i].cameraTarget_.rgbPix_, 5, Scalar(255,0,255), -1, 8, 0);  
-            cv::rectangle(currentRgbImg_, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_, cv::Scalar(0,0,255), 2);
+    //         circle(currentRgbImg_, currentFullTargets_[i].cameraTarget_.rgbPix_, 5, Scalar(255,0,255), -1, 8, 0);  
+    //         cv::rectangle(currentRgbImg_, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_, cv::Scalar(0,0,255), 2);
 
-            cv::Point p_angle(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.tl().x, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.height - 20);
-            cv::Point p_dist(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.tl().x, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.height - 40);
+    //         cv::Point p_angle(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.tl().x, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.height - 20);
+    //         cv::Point p_dist(currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.tl().x, currentFullTargets_[i].cameraTarget_.rgb_bounding_box_.height - 40);
         
-            putText(currentRgbImg_,  "angle: " + to_string((int)currentFullTargets_[i].cameraTarget_.degAngle_), p_angle,1, 1, Scalar(0,255,255));
-            putText(currentRgbImg_,  "dist: " + to_string((int)currentFullTargets_[i].cameraTarget_.distance_), p_dist,1, 1, Scalar(0,255,255));
-        }         
-        else { // only leg
+    //         putText(currentRgbImg_,  "angle: " + to_string((int)currentFullTargets_[i].cameraTarget_.degAngle_), p_angle,1, 1, Scalar(0,255,255));
+    //         putText(currentRgbImg_,  "dist: " + to_string((int)currentFullTargets_[i].cameraTarget_.distance_), p_dist,1, 1, Scalar(0,255,255));
+    //     }         
+    //     else { // only leg
 
-            //leg: 
-            cv::Point2d legTarget((currentFullTargets_[i].legTarget_.position_.point.x * RESOULTION) + center.x,
-                ( currentFullTargets_[i].legTarget_.position_.point.y * RESOULTION) + center.y);
+    //         //leg: 
+    //         cv::Point2d legTarget((currentFullTargets_[i].legTarget_.position_.point.x * RESOULTION) + center.x,
+    //             ( currentFullTargets_[i].legTarget_.position_.point.y * RESOULTION) + center.y);
 
-            circle(debugImg, legTarget, 5, Scalar(255,255,0), -1, 8, 0);
-        }
+    //         circle(debugImg, legTarget, 5, Scalar(255,255,0), -1, 8, 0);
+    //     }
        
-    }
-
-    // scan
-    for (int j = 0; j < currentScanPoints_.size(); j++) {
-
-        cv::Point2d pIMG((currentScanPoints_[j].x * RESOULTION) + center.x,
-            (currentScanPoints_[j].y * RESOULTION) + center.y);
-
-        circle(debugImg, pIMG, 1, Scalar(0, 0, 255), -1, 8, 0);
-    }
-    
-    // trackingTarget
-    if( followerState_ == TRACKING || followerState_ == SEARCHING){
-        
-        cv::Point2d trackingTargetPix((trackingTarget_.globalPosition_.point.x * RESOULTION) + center.x,
-            ( trackingTarget_.globalPosition_.point.y * RESOULTION) + center.y);
-        circle(debugImg, trackingTargetPix, 10, Scalar(255, 255, 255), 2, 8, 0);
-
-        cv::arrowedLine(debugImg, robotPosePix, trackingTargetPix, Scalar(0,255,0), 2);
-
-        if( trackingTarget_.fullTarget_.hasCamera_ ){
-            cv::rectangle(currentRgbImg_, 
-                trackingTarget_.fullTarget_.cameraTarget_.rgb_bounding_box_, cv::Scalar(0,255,0), 2);
-
-        }
-        
-    }
-
-    // if( followerState_ == TRACKING || followerState_ == SEARCHING) {
-
-    //     //kalman
-        
-    //     cv::Point2d kalmanPoint((trackingTarget_.x_pos_pred * RESOULTION) + center.x,
-    //         ( trackingTarget_.y_pos_pred  * RESOULTION) + center.y);
-    //     circle(debugImg, kalmanPoint, 10, Scalar(255, 50, 120), 2, 8, 0);       
-  
     // }
+
+    // // scan
+    // for (int j = 0; j < currentScanPoints_.size(); j++) {
+
+    //     cv::Point2d pIMG((currentScanPoints_[j].x * RESOULTION) + center.x,
+    //         (currentScanPoints_[j].y * RESOULTION) + center.y);
+
+    //     circle(debugImg, pIMG, 1, Scalar(0, 0, 255), -1, 8, 0);
+    // }
+    
+    // // trackingTarget
+    // if( followerState_ == TRACKING || followerState_ == SEARCHING){
+        
+    //     cv::Point2d trackingTargetPix((trackingTarget_.globalPosition_.point.x * RESOULTION) + center.x,
+    //         ( trackingTarget_.globalPosition_.point.y * RESOULTION) + center.y);
+    //     circle(debugImg, trackingTargetPix, 10, Scalar(255, 255, 255), 2, 8, 0);
+
+    //     cv::arrowedLine(debugImg, robotPosePix, trackingTargetPix, Scalar(0,255,0), 2);
+
+    //     if( trackingTarget_.fullTarget_.hasCamera_ ){
+    //         cv::rectangle(currentRgbImg_, 
+    //             trackingTarget_.fullTarget_.cameraTarget_.rgb_bounding_box_, cv::Scalar(0,255,0), 2);
+
+    //     }
+        
+    // }
+
+    // // if( followerState_ == TRACKING || followerState_ == SEARCHING) {
+
+    // //     //kalman
+        
+    // //     cv::Point2d kalmanPoint((trackingTarget_.x_pos_pred * RESOULTION) + center.x,
+    // //         ( trackingTarget_.y_pos_pred  * RESOULTION) + center.y);
+    // //     circle(debugImg, kalmanPoint, 10, Scalar(255, 50, 120), 2, 8, 0);       
+  
+    // // }
     
    
      
 
-    flip(debugImg,debugImg, 0);
+    // flip(debugImg,debugImg, 0);
 
-     if( followerState_ == TRACKING ) {
+    //  if( followerState_ == TRACKING ) {
         
-        putText(debugImg,  "target angle " + to_string( trackingTarget_.globalDegAngle_),
-            cv::Point(50,50), 0.2, 1, Scalar(255, 255, 255));
+    //     putText(debugImg,  "target angle " + to_string( trackingTarget_.globalDegAngle_),
+    //         cv::Point(50,50), 0.2, 1, Scalar(255, 255, 255));
 
-        putText(debugImg,  "target distance " + to_string((int) trackingTarget_.globalDistance_),
-            cv::Point(50,100), 0.2, 1, Scalar(255, 255, 255));  
+    //     putText(debugImg,  "target distance " + to_string((int) trackingTarget_.globalDistance_),
+    //         cv::Point(50,100), 0.2, 1, Scalar(255, 255, 255));  
 
-     }
+    //  }
  
 
-     //current state
-    putText(debugImg,  getStringState(), cv::Point(debugImg.cols / 2 ,50),1, 2, Scalar(0,255,0));
+    //  //current state
+    // putText(debugImg,  getStringState(), cv::Point(debugImg.cols / 2 ,50),1, 2, Scalar(0,255,0));
 
     // imshow("currentRgbImg_",currentRgbImg_);
     // imshow("debugImg",debugImg);
     // waitKey(1);
 
-    sensor_msgs::ImagePtr msg = 
-            cv_bridge::CvImage(std_msgs::Header(), "bgr8", debugImg).toImageMsg();
+    // sensor_msgs::ImagePtr msg = 
+    //         cv_bridge::CvImage(std_msgs::Header(), "bgr8", debugImg).toImageMsg();
     
-    debugImgPublisher_.publish(msg);
+    // debugImgPublisher_.publish(msg);
 
 
     

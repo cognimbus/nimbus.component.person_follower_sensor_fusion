@@ -58,7 +58,7 @@ public:
             &ObjectsMsgConvertor::detectedObjectsCallback, this);
 
         openVinoObjectsPub_ = 
-            node_.advertise<object_msgs::ObjectsInBoxes>("openvino_toolkit/detected_objects",1);
+            node_.advertise<object_msgs::ObjectsInBoxes>("/openvino_toolkit/detected_objects",1);
 
     }
 
@@ -74,7 +74,7 @@ public:
         openVinoObjects.objects_vector.resize(objects->detections.size());
 
         for(int i = 0; i < objects->detections.size(); i++ ) {
-
+            
             object_msgs::ObjectInBox  objectInBox; 
             objectInBox.roi.width = objects->detections[i].bbox.size_x;
             objectInBox.roi.height = objects->detections[i].bbox.size_y;
